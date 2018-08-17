@@ -27,11 +27,14 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 ###
+import bugzilla
 import supybot.utils as utils
 from supybot.commands import *
 import supybot.plugins as plugins
 import supybot.ircutils as ircutils
 import supybot.callbacks as callbacks
+import urllib
+
 try:
     from supybot.i18n import PluginInternationalization
     _ = PluginInternationalization('TriagingMonitor')
@@ -51,14 +54,36 @@ class TriagingMonitor(callbacks.Plugin):
     def __init__(self, irc):
         self.__parent = super(TriagingMonitor, self)
         self.__parent.__init__(irc)
-        self.dfg = "DFG:Upgrades"
+        self.dfg = ""
+        self.bz_url = "https://bugzilla.redhat.com"
+        self.bzapi = bugzilla.Bugzilla(self.bz_url)
+        self.str_query = "/buglist.cgi?GoAheadAndLogIn=Log%20in&action=wrap&bug_status=NEW&bug_status=ASSIGNED&bug_status=POST&bug_status=MODIFIED&bug_status=ON_DEV&bug_status=ON_QA&bug_status=VERIFIED&bug_status=RELEASE_PENDING&chfield=%5BBug%20creation%5D&chfieldto=Now&f1=cf_internal_whiteboard&f10=cf_qe_conditional_nak&f11=CP&f13=CP&f14=cf_internal_whiteboard&f2=component&f3=OP&f4=priority&f5=bug_severity&f6=flagtypes.name&f7=OP&f8=keywords&f9=cf_conditional_nak&j7=OR&keywords=FutureFeature%2C%20Tracking%2C%20Documentation%2C%20&keywords_type=nowords&list_id=9067676&n3=1&o1=substring&o10=isnotempty&o14=substring&o2=notsubstring&o4=notequals&o5=notequals&o6=anywordssubstr&o8=substring&o9=isnotempty&order=opendate%20DESC%2Cchangeddate%20DESC%2Cassigned_to%2Cbug_id%20DESC&query_format=advanced&v1=DFG%3A&v14={0}&v2=doc&v4=unspecified&v5=unspecified&v6=rhos%20rhel&v8=Triaged"
+
+        try:
+           if not self.bzapi.logged_in:
+            self.bzapi.interactive_login()
+
+        except:
+            self.bzapi.interactive_login()
+
+    def _get_untriage_bugs(self):
+
+        query = self.bzapi.url_to_query(self.bz_url+self.str_query.format(urllib.quote(self.dfg)))
+        return self.bzapi.query(query)
 
     def untriage(self, irc, msg, args):
         """takes no arguments
 
          Returns the number of untriaged Bugzillas for the DFG.
          """
-        irc.reply(str(0))
+
+        if not self.dfg:
+            irc.reply("Use 'configure' command to specify the"
+                      "DFG for this channel")
+            return
+       
+        bugs = self._get_untriage_bugs()
+        irc.reply(str(len(bugs)) + " untriaged bugs for " + str(self.dfg))
 
     untriage = wrap(untriage)
 
@@ -74,8 +99,42 @@ class TriagingMonitor(callbacks.Plugin):
         else:
             self.dfg = str(dfg)
             irc.replySuccess()
-    
-    configure = wrap(configure, ['string'])
+
+        irc.reply(msg.args)
+
+    configure = wrap(configure, ['text'])
+
+    def checkdfg(self, irc, msg, args):
+        """ takes no arguments
+
+        Returns the dfg configured for this channel used
+        to query the number of untriaged BZs.
+        """
+
+        if self.dfg:
+            irc.reply(self.dfg)
+        else:
+            irc.reply("Use 'configure' command to specify the "
+                      "DFG for this channel")
+
+    checkdfg = wrap(checkdfg)
+
+    def which(self, irc, msg, args):
+        """takes no arguments
+
+         Returns the list of untriaged Bugzillas for the DFG.
+         """
+
+        if not self.dfg:
+            irc.reply("Use 'configure' command to specify the"
+                      "DFG for this channel")
+            return
+       
+        bugs = self._get_untriage_bugs()
+        for bug in bugs:
+            irc.reply("BZ " + str(bug.id) + ": " + str(bug.summary))
+
+    which = wrap(which)
 
 Class = TriagingMonitor
 
